@@ -17,10 +17,10 @@
                (when-let [next-cursor (get-in history [:response_metadata :next_cursor])]
                  (conversation-stream connection channel-id next-cursor))))))
 
-(defn get-link [message]
+(defn extract-attachment-data [message]
   (when-let [attachments (:attachments message)] 
     (let [link-attachments (filter :original_url attachments)]
-      (:original_url (first link-attachments)))))
+      (select-keys (last link-attachments) [:author_name :fallback :original_url]))))
   
 
 (defn -main
@@ -31,10 +31,10 @@
         fedex-convo (first (filter #(= (:name %) "fedex") channels))
         channel-id (:id fedex-convo)
         messages (conversation-stream connection channel-id nil)
-        with-links (map #(assoc % :link (get-link %)) messages) 
-        projected (map #(select-keys % [:link :reactions])  with-links)
-        cleaned (filter #(and (:link %)) projected)
-        aggregrated (map #(assoc % :reactions (sum-reactions (:reactions %))) cleaned)
-        sorted (reverse (sort-by :reactions aggregrated)) 
+        with-links (map #(merge % (extract-attachment-data %)) messages)
+        cleaned (filter #(and (:original_url %)) with-links)
+        projected (map #(select-keys % [:author_name :fallback :original_url :reactions]) cleaned)
+        aggregrated (map #(assoc % :reactions (sum-reactions (:reactions %))) projected)
+        sorted (reverse (sort-by :reactions (reverse aggregrated))) ; Reverse to put newer links at the top
         json (cc/generate-string sorted {:pretty true})]
     (spit "results.json" json)))
